@@ -1,34 +1,56 @@
 #!/usr/bin/env python3
-"""Entrypoint: copy the rendered front page to the harness output dir.
+"""Copy the rendered front page to the grading output directory.
 
-Stdlib only. Verifies the PNG magic bytes and the 1 MiB size cap, then
-prints the sha256 of the bytes it wrote, so a run can be checked.
+Reads entry.png next to this file, checks it is a real PNG under the
+1 MiB cap, then writes it to /output/entry.png (or the directory given
+as the first argument). Stdlib only, no network.
 """
-import hashlib
 import os
+import shutil
+import struct
 import sys
 
-SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entry.png")
-# Output dir: argv[1] wins, else MAKEFUN_OUTPUT_DIR, else /output.
-OUT_DIR = (sys.argv[1] if len(sys.argv) > 1
-           else os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
+HERE = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.join(HERE, "entry.png")
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+MAX_BYTES = 1024 * 1024
+EXPECT_W, EXPECT_H = 1024, 1024
+
+
+def png_size(path):
+    """Read width/height from the PNG IHDR chunk (stdlib only)."""
+    with open(path, "rb") as fh:
+        data = fh.read(33)
+    if data[:8] != PNG_MAGIC or data[12:16] != b"IHDR":
+        return None
+    w, h = struct.unpack(">II", data[16:24])
+    return w, h
 
 
 def main():
+    dest_dir = sys.argv[1] if len(sys.argv) > 1 else "/output"
+    if not os.path.isfile(SRC):
+        print("missing:", SRC)
+        return 1
     with open(SRC, "rb") as fh:
-        data = fh.read()
-    if data[:8] != b"\x89PNG\r\n\x1a\n":
-        raise SystemExit("entry.png is not a PNG file")
-    if len(data) > 1 * 1024 * 1024:
-        raise SystemExit("entry.png exceeds the 1 MiB cap: %d bytes"
-                         % len(data))
-    os.makedirs(OUT_DIR, exist_ok=True)
-    out = os.path.join(OUT_DIR, "entry.png")
-    with open(out, "wb") as fh:
-        fh.write(data)
-    print("entry.png %d bytes sha256 %s"
-          % (len(data), hashlib.sha256(data).hexdigest()))
+        head = fh.read(len(PNG_MAGIC))
+    if head != PNG_MAGIC:
+        print("not a PNG:", SRC)
+        return 1
+    size = os.path.getsize(SRC)
+    if size > MAX_BYTES:
+        print("over 1 MiB cap:", size, "bytes")
+        return 1
+    dims = png_size(SRC)
+    if dims != (EXPECT_W, EXPECT_H):
+        print("unexpected dimensions:", dims)
+        return 1
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, "entry.png")
+    shutil.copyfile(SRC, dest)
+    print("wrote", dest, size, "bytes")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

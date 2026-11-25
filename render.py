@@ -1,61 +1,84 @@
 #!/usr/bin/env python3
-"""Render the news-image-20261125 front page: Wednesday 25 November 2026.
+"""Render the news-image-20261125 front page: 'The World in One Day'.
 
-Fresh re-author for this edition (post-opening session, 25 Nov 2026).
-Proven broadsheet formula: giant date, deck, numbers strip, region bar,
-UTC timeline, 3 illustrated leads, 10 numbered cards, ALSO list,
-DATE CHECK box, sources line. All stories verified against wire dates;
-Tuesday/Monday items sit only in DATE CHECK, honestly dated.
-Deterministic: no randomness, no clock, no network.
+Draws one 1024x1024 broadsheet PNG (entry.png) summing up Wednesday
+25 November 2026. Deterministic: no randomness, no clock, no network.
+Run: python3 render.py  ->  writes entry.png next to this file.
 """
-import hashlib
-
+import os
 from PIL import Image, ImageDraw, ImageFont
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(HERE, "entry.png")
 
 W, H = 1024, 1024
 MX = 36                      # side margin
-CW = W - 2 * MX              # content width = 952
+CW = W - 2 * MX              # content width: 952
 
-PAPER = (244, 239, 228)
-INK = (26, 26, 26)
-RED = (178, 34, 30)
+PAPER = (247, 241, 227)
+INK = (28, 28, 28)
+FAINT = (110, 105, 92)
+RED = (176, 42, 32)
 BLUE = (31, 78, 121)
-TEAL = (14, 110, 96)
-GOLD = (198, 152, 40)
-MUTED = (112, 106, 94)
-RULE = (186, 178, 158)
-NAVY = (16, 32, 64)
+CREAM2 = (238, 231, 214)
+RULE = (150, 143, 126)
+NAVY = (14, 42, 71)
+SEA = (110, 157, 189)
+SKY = (201, 218, 232)
+LEAF = (46, 125, 91)
+LEAF_D = (30, 96, 68)
 
-DJ = "/usr/share/fonts/truetype/dejavu/"
-LB = "/usr/share/fonts/truetype/liberation/"
+F_SANS = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+F_SANS_REG = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+F_SERIF = "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf"
+F_SERIF_IT = "/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf"
+F_SERIF_B = "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"
 
 
-def f(path, size):
+def font(path, size):
     return ImageFont.truetype(path, size)
 
 
-SANS = DJ + "DejaVuSans.ttf"
-SANSB = DJ + "DejaVuSans-Bold.ttf"
-SERIF = DJ + "DejaVuSerif.ttf"
-SERIFI = LB + "LiberationSerif-Italic.ttf"
+def text_w(draw, s, fnt):
+    return draw.textlength(s, font=fnt)
 
-# ---------------------------------------------------------------- stories
-# region tags: East Asia / Europe / Middle East / South Asia / SE Asia /
-# Oceania / Americas / World
-LEADS = [
-    ("CHIP STOCKS LEAD ASIA SELLOFF", "East Asia · Markets",
-     "Nikkei falls as much as 2.9%, Kospi 5.3%, Taiwan 5.1% as fresh US "
-     "tariff threats hit and the AI rally fizzles.",
-     "fall", "East Asia"),
-    ("SHENZHOU-24 LIFTS OFF", "East Asia · Space",
-     "China launches Shenzhou-24 from Jiuquan; Pakistan's Muhammad "
-     "Zeeshan Ali, 40, is the first foreigner on its space station.",
-     "rocket", "East Asia"),
-    ("RUSSIA CRIES 'TERRORISM'", "Europe · War",
-     "Moscow accuses Kyiv of terrorism after drone attacks on ships in "
-     "the Baltic and off Libya; Zelenskiy confirmed the strikes.",
-     "ship", "Europe"),
-]
+
+def wrap(draw, s, fnt, max_w):
+    """Greedy word wrap; returns list of lines, never wider than max_w."""
+    words = s.split()
+    lines, cur = [], ""
+    for w in words:
+        trial = (cur + " " + w).strip()
+        if text_w(draw, trial, fnt) <= max_w or not cur:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def tracked(draw, cx, y, s, fnt, fill, tracking):
+    """Draw s centred on cx with extra tracking between letters."""
+    widths = [draw.textlength(ch, font=fnt) for ch in s]
+    total = sum(widths) + tracking * (len(s) - 1)
+    x = cx - total / 2
+    for ch, w in zip(s, widths):
+        draw.text((x, y), ch, font=fnt, fill=fill)
+        x += w + tracking
+
+
+def rule(draw, x0, x1, y, width=1, color=RULE):
+    draw.line([(x0, y), (x1, y)], fill=color, width=width)
+
+
+# ---------------------------------------------------------------- data
+MASTHEAD_L = "THE WORLD IN ONE DAY"
+MASTHEAD_R = "26 STORIES · 8 REGIONS"
+DATE = "25 NOVEMBER 2026"
+WEEKDAY = "WEDNESDAY"
+DECK = "Asia's chip rout. Shenzhou-24 lifts off. Russia cries 'terrorism'."
 
 NUMBERS = [
     ("-5.3%", "KOSPI · WORST POINT"),
@@ -65,6 +88,9 @@ NUMBERS = [
     ("-13%", "SOFTBANK"),
 ]
 
+REGIONS = ("EAST ASIA 9 · AMERICAS 4 · EUROPE 4 · WORLD 3 · "
+           "MIDDLE EAST 2 · SOUTH ASIA 2 · SE ASIA 1 · OCEANIA 1")
+
 TIMELINE = [
     ("00:30", "Aus CPI hotter"),
     ("13:30", "US PCE + GDP"),
@@ -73,379 +99,332 @@ TIMELINE = [
     ("21:00", "US close"),
 ]
 
+LEADS = [
+    dict(tag="East Asia · Markets", art="bars",
+         head="CHIP STOCKS LEAD ASIA SELLOFF",
+         body=("Nikkei falls as much as 2.9%, Kospi 5.3%, Taiwan 5.1% as "
+               "fresh US tariff threats hit and the AI rally fizzles.")),
+    dict(tag="East Asia · Space", art="rocket",
+         head="SHENZHOU-24 LIFTS OFF",
+         body=("China launches Shenzhou-24 from Jiuquan; Pakistan's "
+               "Muhammad Zeeshan Ali, 40, is the first foreigner on "
+               "its space station.")),
+    dict(tag="Europe · War", art="ship",
+         head="RUSSIA CRIES 'TERRORISM'",
+         body=("Moscow accuses Kyiv of terrorism after drone attacks on "
+               "ships in the Baltic and off Libya; Zelenskiy confirmed "
+               "the strikes.")),
+]
+
 CARDS = [
-    ("PCE + GDP DUE 13:30 UTC",
-     "PCE and Q3 GDP land today: PCE seen +0.3% on the month, 3.8% on "
-     "the year; GDP 3.5%.",
-     "Americas"),
-    ("AUSTRALIA CPI HOTTER",
-     "October prices beat forecasts; trimmed mean 3.8%, above target. "
-     "The dollar jumps.",
-     "Oceania"),
-    ("ISRAEL WARNS IRAN",
-     "Katz says Iran is developing chemical weapons and vows to stop "
-     "it.",
-     "Middle East"),
-    ("GOLD SLIPS TO $3,544",
-     "Gold falls 0.3% to $3,544.54 after a 2% drop; a Fed hike is "
-     "priced at 96-97%.",
-     "World"),
-    ("SOFTBANK -13%",
-     "It leads the chip rout, down 13% today and about 70% since June.",
-     "East Asia"),
-    ("BJP, AKALI DAL REUNITE",
-     "The BJP and Shiromani Akali Dal announce an alliance for the "
-     "2027 Punjab vote.",
-     "South Asia"),
-    ("25 HELD IN CARTAGENA",
-     "Gunmen hold 25 hostage in an Exito store after a failed van "
-     "robbery.",
-     "Americas"),
-    ("GUKESH GAME 2 TODAY",
-     "Game 2 starts 15:00 CET in Geneva. Gukesh has White; 0.5-0.5 "
-     "after a draw.",
-     "Europe"),
-    ("BRENT $90.8, -23% IN NOV",
-     "Brent falls 0.7% to $90.8 on rising supply; it is down about "
-     "23% in November.",
-     "World"),
-    ("INDIA REOPENS HIGHER",
-     "GIFT Nifty points to 25,738 after a holiday; the Nifty closed "
-     "at 25,349.65.",
-     "South Asia"),
+    ("01", "PCE + GDP DUE 13:30 UTC",
+     "PCE and Q3 GDP land today. PCE seen +0.3% on the month, 3.8% on the year; GDP 3.5%."),
+    ("02", "AUSTRALIA CPI HOTTER",
+     "October prices beat forecasts, trimmed mean 3.8%, above target. The dollar jumps."),
+    ("03", "ISRAEL WARNS IRAN",
+     "Katz says Iran is developing chemical weapons and vows to stop it."),
+    ("04", "GOLD SLIPS TO $3,544",
+     "Gold falls 0.3% to $3,544.54 after a 2% drop; a Fed hike is priced at 96-97%."),
+    ("05", "SOFTBANK -13%",
+     "It leads the chip rout, down 13% today and about 70% since June."),
+    ("06", "BJP, AKALI DAL REUNITE",
+     "The BJP and Shiromani Akali Dal announce an alliance for the 2027 Punjab vote."),
+    ("07", "25 HELD IN CARTAGENA",
+     "Gunmen hold 25 hostage in an Exito store after a failed van robbery."),
+    ("08", "GUKESH GAME 2 TODAY",
+     "Game 2 starts 15:00 CET in Geneva. Gukesh has White; 0.5-0.5 after a draw."),
+    ("09", "BRENT $90.8, -23% IN NOV",
+     "Brent falls 0.7% to $90.8 on rising supply; it is down about 23% in November."),
+    ("10", "INDIA REOPENS HIGHER",
+     "GIFT Nifty points to 25,738 after a holiday; the Nifty closed at 25,349.65."),
 ]
 
 ALSO = [
-    ("Hang Seng slips 0.73% in the selloff.", "East Asia"),
-    ("S&P 500 futures fall 0.3% in Asia.", "Americas"),
-    ("MSCI Asia-Pacific ex-Japan down 2.3%.", "World"),
-    ("Nikkei near 57,150, down 1,400-1,600 points.", "East Asia"),
-    ("Kioxia -14%, Tokyo Electron -11%.", "East Asia"),
-    ("SK Hynix and Samsung fall 8% each.", "East Asia"),
-    ("Taiwan falls 3% to 5.1% at the worst.", "East Asia"),
-    ("Libya denies collusion in the Benghazi ship strike.", "Middle East"),
-    ("Medvedev sets out nuclear pre-emption terms.", "Europe"),
-    ("Chinese warships reach Ream base for Cambodia drills.", "SE Asia"),
-    ("Japan pulls car suppliers into drone arms push.", "East Asia"),
-    ("Spain votes Sunday; the PP leads the polls.", "Europe"),
-    ("Fed Beige Book due 2pm ET.", "Americas"),
+    "Hang Seng slips 0.73% in the selloff.",
+    "S&P 500 futures fall 0.3% in Asia.",
+    "MSCI Asia-Pacific ex-Japan down 2.3%.",
+    "Nikkei near 57,150, down 1,400-1,600 points.",
+    "Kioxia -14%, Tokyo Electron -11%.",
+    "SK Hynix and Samsung fall 8% each.",
+    "Taiwan falls 3% to 5.1% at the worst.",
+    "Libya denies collusion in the Benghazi ship strike.",
+    "Medvedev sets out nuclear pre-emption terms.",
+    "Chinese warships reach Ream base for Cambodia drills.",
+    "Japan pulls car suppliers into drone arms push.",
+    "Spain votes Sunday; the PP leads the polls.",
+    "Fed Beige Book due 2pm ET.",
 ]
 
-# Honestly dated: these did NOT happen on Wednesday.
-DATE_CHECK_TUE = [
-    "US close: S&P -0.50%, Nasdaq -1.48%, Dow +0.85% to 50,019",
-    "CAS restores Senegal as AFCON champions",
-    "Gukesh-Sindarov Game 1 draw, 38 moves",
-    "Sanofi buys Insmed for $41bn",
-    "Saudi 2027 budget approved: $371bn spend",
-    "Iran rial hits record low, 2.82m per dollar",
-    "England beat Australia by 8 wickets",
-    "Nvidia -6% after +31.5% on Monday",
-    "Houthis hit Riyadh tower, 11 hurt",
-    "Huawei guilty of trade-secret theft",
-]
-DATE_CHECK_MON = [
-    "Cikande factory-fire toll 24 confirmed",
-    "COP31 ends with no deal (Sun 22 Nov)",
-]
+DATECHECK = ("TUE NOV 24: US close: S&P -0.50%, Nasdaq -1.48%, Dow +0.85% "
+             "to 50,019; CAS restores Senegal as AFCON champions; "
+             "Gukesh-Sindarov Game 1 draw, 38 moves; Sanofi buys Insmed "
+             "for $41bn; Saudi 2027 budget approved: $371bn spend; Iran "
+             "rial hits record low, 2.82m per dollar; England beat "
+             "Australia by 8 wickets; Nvidia -6% after +31.5% on Monday; "
+             "Houthis hit Riyadh tower, 11 hurt; Huawei guilty of "
+             "trade-secret theft. MON NOV 23: Cikande factory-fire toll "
+             "24 confirmed; COP31 ends with no deal (Sun 22 Nov).")
 
 SOURCES = ("EDITION TO 03:00 UTC · Sources: Reuters · AP · FIDE · "
            "Chess.com · AFP · detikNews · ANI · ABC · The Hindu")
 
-REGIONS = ["East Asia", "Americas", "Europe", "World",
-           "Middle East", "South Asia", "SE Asia", "Oceania"]
+
+# ---------------------------------------------------------------- art
+def art_bars(w, h):
+    """Falling bar chart with a red downtrend arrow. Drawn on its own
+    layer exactly w x h, so nothing can escape the panel."""
+    layer = Image.new("RGB", (w, h), CREAM2)
+    d = ImageDraw.Draw(layer)
+    base = h - 10
+    bars = [(LEAF_D, 56), (LEAF, 48), (LEAF_D, 40),
+            (RED, 32), (RED, 26), (RED, 20)]
+    bw, gap = 30, 12
+    x = 14
+    tops = []
+    for color, bh in bars:
+        d.rectangle([x, base - bh, x + bw, base], fill=color)
+        tops.append((x + bw / 2, base - bh))
+        x += bw + gap
+    # downtrend line through the bar tops, ending in an arrowhead
+    pts = [(tops[0][0] - 12, tops[0][1] - 8)] + tops + [(w - 8, base - 14)]
+    d.line(pts, fill=RED, width=3)
+    ex, ey = pts[-1]
+    d.polygon([(ex, ey), (ex - 12, ey - 5), (ex - 12, ey + 5)], fill=RED)
+    return layer
 
 
-def region_counts():
-    counts = {r: 0 for r in REGIONS}
-    for _, _, _, _, r in LEADS:
-        counts[r] += 1
-    for _, _, r in CARDS:
-        counts[r] += 1
-    for _, r in ALSO:
-        counts[r] += 1
-    return counts
+def art_rocket(w, h):
+    """Night launch: navy sky, fixed stars, green Earth arc, flat rocket.
+    The arc is a circle whose centre sits below the layer, so only its
+    top shows -- and the layer itself clips everything to the panel."""
+    layer = Image.new("RGB", (w, h), NAVY)
+    d = ImageDraw.Draw(layer)
+    stars = [(18, 14), (52, 30), (88, 10), (120, 26), (150, 12),
+             (186, 32), (220, 16), (252, 28), (280, 12), (36, 44),
+             (104, 48), (168, 44), (232, 50), (268, 44)]
+    for sx, sy in stars:
+        d.ellipse([sx - 1, sy - 1, sx + 1, sy + 1], fill=(240, 240, 220))
+    # Earth: big green disc rising from below the panel
+    cx = w // 2
+    d.ellipse([cx - 95, h - 26, cx + 95, h + 164], fill=LEAF)
+    d.arc([cx - 95, h - 26, cx + 95, h + 164], 180, 360,
+          fill=(120, 200, 160), width=2)
+    # Rocket, centred, nose near the top
+    rx = cx
+    d.polygon([(rx - 9, 18), (rx + 9, 18), (rx, 4)], fill=RED)          # nose
+    d.rectangle([rx - 9, 18, rx + 9, 52], fill=(245, 245, 240))         # body
+    d.ellipse([rx - 4, 28, rx + 4, 36], fill=(90, 160, 210))            # window
+    d.polygon([(rx - 9, 44), (rx - 18, 58), (rx - 9, 54)], fill=RED)    # fin L
+    d.polygon([(rx + 9, 44), (rx + 18, 58), (rx + 9, 54)], fill=RED)    # fin R
+    d.polygon([(rx - 6, 52), (rx + 6, 52), (rx, 68)], fill=(240, 140, 40))
+    d.polygon([(rx - 3, 52), (rx + 3, 52), (rx, 62)], fill=(250, 210, 80))
+    return layer
 
 
-# ---------------------------------------------------------------- helpers
-def wrap(draw, text, font, max_w):
-    """Greedy word wrap to a list of lines fitting max_w."""
-    words = text.split()
-    lines, cur = [], ""
-    for word in words:
-        trial = (cur + " " + word).strip()
-        if draw.textlength(trial, font=font) <= max_w:
-            cur = trial
-        else:
-            if cur:
-                lines.append(cur)
-            cur = word
-    if cur:
-        lines.append(cur)
-    return lines
+def art_ship(w, h):
+    """Baltic scene: pale sky, sea band, dark hull, containers, drones."""
+    layer = Image.new("RGB", (w, h), SKY)
+    d = ImageDraw.Draw(layer)
+    sea_y = int(h * 0.62)
+    d.rectangle([0, sea_y, w, h], fill=SEA)
+    # drones: two red dots with dotted drop lines
+    for dx, dy in [(52, 14), (238, 10)]:
+        d.ellipse([dx - 3, dy - 3, dx + 3, dy + 3], fill=RED)
+        y = dy + 6
+        while y < sea_y - 26:
+            d.line([(dx, y), (dx, y + 4)], fill=RED, width=1)
+            y += 9
+    # containers on deck
+    d.rectangle([86, sea_y - 34, 150, sea_y - 16], fill=(245, 245, 240))
+    d.rectangle([156, sea_y - 34, 196, sea_y - 16], fill=RED)
+    d.rectangle([202, sea_y - 26, 232, sea_y - 16], fill=(60, 60, 60))
+    # hull: trapezoid, bow to the right
+    d.polygon([(28, sea_y - 16), (w - 22, sea_y - 16), (w - 52, sea_y + 14),
+               (52, sea_y + 14)], fill=(24, 38, 52))
+    d.line([(28, sea_y - 16), (w - 22, sea_y - 16)], fill=(24, 38, 52), width=2)
+    return layer
 
 
-def draw_rule(draw, x0, x1, y, color=RULE, width=1):
-    draw.line([(x0, y), (x1, y)], fill=color, width=width)
+ART = {"bars": art_bars, "rocket": art_rocket, "ship": art_ship}
 
 
-def draw_fall(draw, x, y, w, h):
-    """Falling market bars with a red down-trend line."""
-    draw.rectangle([x, y, x + w, y + h], fill=(233, 226, 210))
-    vals = [0.85, 0.72, 0.62, 0.45, 0.30]
-    bw = w // 7
-    for i, v in enumerate(vals):
-        bx = x + 14 + i * (bw + 6)
-        bh = int(v * (h - 22))
-        col = RED if i >= 3 else TEAL
-        draw.rectangle([bx, y + h - 10 - bh, bx + bw, y + h - 10], fill=col)
-    draw.line([(x + 10, y + 12), (x + w - 14, y + h - 12)], fill=RED, width=3)
-    # arrowhead at the low end
-    ax, ay = x + w - 14, y + h - 12
-    draw.polygon([(ax, ay + 8), (ax - 12, ay - 2), (ax + 2, ay - 10)],
-                 fill=RED)
-
-
-def draw_rocket(draw, x, y, w, h):
-    """Night launch: dark sky, stars, a white rocket on its flame."""
-    draw.rectangle([x, y, x + w, y + h], fill=NAVY)
-    for sx, sy in [(18, 12), (52, 22), (96, 8), (150, 18), (210, 10),
-                   (260, 26), (36, 40), (130, 34), (200, 44), (280, 48)]:
-        draw.ellipse([x + sx, y + sy, x + sx + 3, y + sy + 3],
-                     fill=(240, 236, 220))
-    cx = x + w // 2
-    top = y + 8
-    # flame
-    draw.polygon([(cx - 7, top + 34), (cx + 7, top + 34),
-                  (cx, top + 56)], fill=(240, 120, 40))
-    draw.polygon([(cx - 4, top + 34), (cx + 4, top + 34),
-                  (cx, top + 46)], fill=(250, 200, 80))
-    # body
-    draw.rectangle([cx - 8, top + 6, cx + 8, top + 34],
-                   fill=(245, 244, 238))
-    draw.polygon([(cx - 8, top + 6), (cx + 8, top + 6), (cx, top - 2)],
-                 fill=RED)
-    draw.polygon([(cx - 8, top + 26), (cx - 18, top + 38),
-                  (cx - 8, top + 38)], fill=RED)
-    draw.polygon([(cx + 8, top + 26), (cx + 18, top + 38),
-                  (cx + 8, top + 38)], fill=RED)
-    draw.ellipse([cx - 4, top + 12, cx + 4, top + 20], fill=BLUE)
-    # earth curve at the bottom, kept inside this panel's own box
-    draw.arc([x + 10, y + h - 20, x + w - 10, y + h + 16], 180, 360,
-             fill=(120, 170, 120), width=4)
-
-
-def draw_ship(draw, x, y, w, h):
-    """A tanker at sea under three drones, red dashed tracks."""
-    draw.rectangle([x, y, x + w, y + h], fill=(214, 228, 236))
-    # sea
-    draw.rectangle([x, y + h - 22, x + w, y + h], fill=(120, 160, 190))
-    draw.line([(x + 8, y + h - 14), (x + w - 8, y + h - 14)],
-              fill=(240, 240, 240), width=2)
-    # drones + dashed tracks
-    for dx, dy in [(30, 10), (90, 6), (150, 12)]:
-        draw.ellipse([x + dx, y + dy, x + dx + 6, y + dy + 6], fill=INK)
-        for k in range(3):
-            yy = y + dy + 10 + k * 6
-            draw.line([(x + dx + 3, yy), (x + dx + 3, yy + 3)],
-                      fill=RED, width=2)
-    # hull
-    hx, hy = x + 40, y + h - 38
-    draw.polygon([(hx, hy), (hx + 220, hy), (hx + 200, hy + 16),
-                  (hx + 20, hy + 16)], fill=(40, 44, 52))
-    draw.rectangle([hx + 60, hy - 14, hx + 110, hy], fill=(240, 240, 240))
-    draw.rectangle([hx + 120, hy - 10, hx + 140, hy], fill=RED)
-    draw.rectangle([hx + 150, hy - 20, hx + 165, hy], fill=(60, 60, 60))
-
-
-ART = {"fall": draw_fall, "rocket": draw_rocket, "ship": draw_ship}
-
-
-# ---------------------------------------------------------------- render
+# ---------------------------------------------------------------- page
 def render():
     img = Image.new("RGB", (W, H), PAPER)
     d = ImageDraw.Draw(img)
-    y = 26
+    y = 28
 
-    # masthead kicker
-    kick_f = f(SANSB, 15)
-    n_stories = len(LEADS) + len(CARDS) + len(ALSO)
-    counts = region_counts()
-    right = "%d STORIES · %d REGIONS" % (n_stories, len(REGIONS))
-    d.text((MX, y), "THE WORLD IN ONE DAY", font=kick_f, fill=INK)
-    rw = d.textlength(right, font=kick_f)
-    d.text((MX + CW - rw, y), right, font=kick_f, fill=RED)
+    # Masthead
+    f_mast = font(F_SANS, 21)
+    d.text((MX, y), MASTHEAD_L, font=f_mast, fill=INK)
+    f_mast_r = font(F_SANS, 19)
+    d.text((W - MX - text_w(d, MASTHEAD_R, f_mast_r), y + 2),
+           MASTHEAD_R, font=f_mast_r, fill=RED)
+    y += 26
+
+    # Giant date, centred (v1: x-span 181-843, ~662px wide, cap ~50px)
+    size = 68
+    while size > 40:
+        f_date = font(F_SANS, size)
+        if text_w(d, DATE, f_date) <= CW:
+            break
+        size -= 2
+    dw = text_w(d, DATE, f_date)
+    d.text(((W - dw) / 2, y), DATE, font=f_date, fill=INK)
+    y += size + 8
+
+    # Weekday, letterspaced, centred
+    tracked(d, W // 2, y, WEEKDAY, font(F_SANS, 19), RED, 7)
     y += 22
 
-    # giant date
-    date_f = f(SANSB, 60)
-    date = "25 NOVEMBER 2026"
-    dw = d.textlength(date, font=date_f)
-    d.text(((W - dw) / 2, y), date, font=date_f, fill=INK)
-    y += 72
-    sub_f = f(SANSB, 14)
-    sub = "W E D N E S D A Y"
-    sw = d.textlength(sub, font=sub_f)
-    d.text(((W - sw) / 2, y), sub, font=sub_f, fill=RED)
-    y += 22
-    draw_rule(d, MX, MX + CW, y, color=INK, width=2)
+    # Double rule
+    rule(d, MX, W - MX, y, 3, INK)
+    rule(d, MX, W - MX, y + 6, 1, INK)
+    y += 12
+
+    # Deck
+    f_deck = font(F_SERIF_IT, 20)
+    dw = text_w(d, DECK, f_deck)
+    d.text(((W - dw) / 2, y), DECK, font=f_deck, fill=INK)
+    y += 26
+    rule(d, MX, W - MX, y, 1)
     y += 6
-    draw_rule(d, MX, MX + CW, y, color=INK, width=1)
-    y += 10
 
-    # deck line
-    deck_f = f(SERIFI, 17)
-    deck = ("Asia's chip rout. Shenzhou-24 lifts off. "
-            "Russia cries 'terrorism'.")
-    for line in wrap(d, deck, deck_f, CW):
-        lw = d.textlength(line, font=deck_f)
-        d.text(((W - lw) / 2, y), line, font=deck_f, fill=INK)
-        y += 22
-    y += 8
-
-    # numbers strip
-    draw_rule(d, MX, MX + CW, y)
-    y += 8
-    val_f = f(SANSB, 21)
-    lab_f = f(SANSB, 10)
-    col_w = CW // 5
+    # BY THE NUMBERS strip
+    col_w = CW / len(NUMBERS)
+    f_num = font(F_SANS, 30)
+    f_num_l = font(F_SANS, 11)
     for i, (val, lab) in enumerate(NUMBERS):
-        cx = MX + i * col_w
-        vw = d.textlength(val, font=val_f)
-        d.text((cx + (col_w - vw) / 2, y), val, font=val_f, fill=INK)
-        lw = d.textlength(lab, font=lab_f)
-        d.text((cx + (col_w - lw) / 2, y + 26), lab, font=lab_f, fill=MUTED)
+        cx = MX + col_w * i + col_w / 2
+        vw = text_w(d, val, f_num)
+        d.text((cx - vw / 2, y), val, font=f_num, fill=INK)
+        lw = text_w(d, lab, f_num_l)
+        d.text((cx - lw / 2, y + 34), lab, font=f_num_l, fill=FAINT)
         if i:
-            d.line([(cx, y), (cx, y + 40)], fill=RULE, width=1)
-    y += 48
-    draw_rule(d, MX, MX + CW, y)
-    y += 10
+            x = MX + col_w * i
+            d.line([(x, y + 2), (x, y + 44)], fill=RULE, width=1)
+    y += 52
+    rule(d, MX, W - MX, y, 1)
+    y += 6
 
-    # region bar
-    reg_f = f(SANSB, 11)
-    parts = ["%s %d" % (r.upper(), counts[r]) for r in REGIONS]
-    reg_line = "  ·  ".join(parts)
-    rw = d.textlength(reg_line, font=reg_f)
-    d.text(((W - rw) / 2, y), reg_line, font=reg_f, fill=BLUE)
+    # Region bar
+    f_reg = font(F_SANS, 14)
+    rw = text_w(d, REGIONS, f_reg)
+    d.text(((W - rw) / 2, y), REGIONS, font=f_reg, fill=BLUE)
     y += 20
-    draw_rule(d, MX, MX + CW, y)
-    y += 8
+    rule(d, MX, W - MX, y, 1)
+    y += 6
 
-    # UTC timeline: 5 entries, one line each
-    tl_lab_f = f(SANSB, 10)
-    tl_txt_f = f(SERIF, 11)
-    tl_w = CW // 5
-    for i, (lab, txt) in enumerate(TIMELINE):
-        cx = MX + i * tl_w
-        d.text((cx, y), lab, font=tl_lab_f, fill=RED)
-        d.text((cx, y + 13), txt, font=tl_txt_f, fill=INK)
-    y += 30
-    draw_rule(d, MX, MX + CW, y)
-    y += 10
+    # UTC timeline
+    tcol = CW / len(TIMELINE)
+    f_time = font(F_SANS, 14)
+    f_tlab = font(F_SERIF, 14)
+    for i, (t, lab) in enumerate(TIMELINE):
+        x = MX + tcol * i
+        d.text((x, y), t, font=f_time, fill=RED)
+        d.text((x, y + 18), lab, font=f_tlab, fill=INK)
+    y += 42
 
-    # 3 lead panels
-    lead_w = (CW - 2 * 20) // 3
-    head_f = f(SANSB, 14)
-    body_f = f(SERIF, 11)
-    tag_f = f(SANSB, 9)
+    # Lead panels: art (clipped layer) + tag + headline + body
+    gutter = 23
+    pw = (CW - 2 * gutter) // 3
+    art_h = 60
+    f_tag = font(F_SANS, 12)
+    f_lhead = font(F_SANS, 17)
+    f_lbody = font(F_SERIF, 14)
     lead_top = y
-    lead_bottom = y
-    for i, (head, tag, body, art, _reg) in enumerate(LEADS):
-        x = MX + i * (lead_w + 20)
-        d.rectangle([x, y, x + lead_w, y + 68], outline=RULE, width=1)
-        ART[art](d, x + 1, y + 1, lead_w - 2, 66)
-        by = y + 76
-        d.text((x, by), tag, font=tag_f, fill=RED)
-        by += 13
-        for line in wrap(d, head, head_f, lead_w):
-            d.text((x, by), line, font=head_f, fill=INK)
-            by += 17
-        for line in wrap(d, body, body_f, lead_w):
-            d.text((x, by), line, font=body_f, fill=INK)
-            by += 14
-        lead_bottom = max(lead_bottom, by)
-    y = lead_bottom + 8
-    draw_rule(d, MX, MX + CW, y)
-    y += 10
+    lead_bottom = lead_top
+    for i, lead in enumerate(LEADS):
+        x = MX + i * (pw + gutter)
+        layer = ART[lead["art"]](pw, art_h)
+        img.paste(layer, (x, lead_top))
+        ly = lead_top + art_h + 6
+        d.text((x, ly), lead["tag"], font=f_tag, fill=RED)
+        ly += 14
+        for line in wrap(d, lead["head"], f_lhead, pw)[:2]:
+            d.text((x, ly), line, font=f_lhead, fill=INK)
+            ly += 21
+        ly += 2
+        for line in wrap(d, lead["body"], f_lbody, pw)[:3]:
+            d.text((x, ly), line, font=f_lbody, fill=INK)
+            ly += 17
+        lead_bottom = max(lead_bottom, ly)
+    y = lead_bottom + 20
 
-    # 10 numbered cards, rows of 3/3/3/1
-    num_f = f(SANSB, 13)
-    chead_f = f(SANSB, 12)
-    cbody_f = f(SERIF, 11)
-    rows = [CARDS[0:3], CARDS[3:6], CARDS[6:9], CARDS[9:10]]
+    # Numbered cards, 3 columns x 4 rows (last row: one card).
+    # v1 row pitch is 67px: number + 1-line headline + 2-line body.
+    f_cnum = font(F_SANS, 16)
+    f_chead = font(F_SANS, 17)
+    f_cbody = font(F_SERIF, 13)
+    rows = [CARDS[i:i + 3] for i in range(0, len(CARDS), 3)]
     for row in rows:
+        row_h = 0
         heights = []
-        for idx, (head, body, _reg) in enumerate(row):
-            lines_h = wrap(d, head, chead_f, lead_w - 30)
-            lines_b = wrap(d, body, cbody_f, lead_w - 30)
-            heights.append(16 + 15 * len(lines_h) + 14 * len(lines_b))
-        row_h = max(heights)
-        for idx, (head, body, _reg) in enumerate(row):
-            x = MX + idx * (lead_w + 20)
-            num = "%02d" % (CARDS.index((head, body, _reg)) + 1)
-            d.text((x, y), num, font=num_f, fill=RED)
-            by = y + 16
-            for line in wrap(d, head, chead_f, lead_w - 30):
-                d.text((x + 30, by), line, font=chead_f, fill=INK)
-                by += 15
-            for line in wrap(d, body, cbody_f, lead_w - 30):
-                d.text((x + 30, by), line, font=cbody_f, fill=INK)
-                by += 14
-        y += row_h + 8
-    draw_rule(d, MX, MX + CW, y)
-    y += 8
+        for num, head, body in row:
+            hlines = wrap(d, head, f_chead, pw)[:2]
+            blines = wrap(d, body, f_cbody, pw)[:2]
+            ch = 16 + len(hlines) * 19 + 2 + len(blines) * 15
+            heights.append(ch)
+            row_h = max(row_h, ch)
+        for j, (num, head, body) in enumerate(row):
+            x = MX + j * (pw + gutter)
+            cy = y
+            d.text((x, cy), num, font=f_cnum, fill=RED)
+            cy += 16
+            for line in wrap(d, head, f_chead, pw)[:2]:
+                d.text((x, cy), line, font=f_chead, fill=INK)
+                cy += 19
+            cy += 2
+            for line in wrap(d, body, f_cbody, pw)[:2]:
+                d.text((x, cy), line, font=f_cbody, fill=INK)
+                cy += 15
+        y += row_h
 
-    # ALSO list, 2 columns
-    map_lab_f = f(SANSB, 10)
-    d.text((MX, y), "ALSO ON WEDNESDAY", font=map_lab_f, fill=RED)
-    y += 15
-    also_f = f(SERIF, 11)
-    col2_w = (CW - 20) // 2
-    left = ALSO[:7]
-    right_items = ALSO[7:]
-    max_rows = max(len(left), len(right_items))
-    for r in range(max_rows):
-        for ci, items in enumerate((left, right_items)):
-            if r < len(items):
-                txt, _reg = items[r]
-                x = MX + ci * (col2_w + 20)
-                num = "%02d" % (r + 1 + ci * 7)
-                d.text((x, y), num, font=f(SANSB, 10), fill=MUTED)
-                d.text((x + 24, y), txt, font=also_f, fill=INK)
-        y += 14
-    y += 4
-    draw_rule(d, MX, MX + CW, y)
-    y += 8
+    # ALSO list, two columns (01-07 left, 08-13 right)
+    f_ahead = font(F_SANS, 13)
+    f_anum = font(F_SANS, 11)
+    f_atext = font(F_SERIF, 13)
+    d.text((MX, y), "ALSO ON WEDNESDAY", font=f_ahead, fill=RED)
+    y += 16
+    half = 7
+    left_x = MX
+    right_x = MX + CW // 2 + 6
+    col_w2 = CW // 2 - 12
+    for k, item in enumerate(ALSO):
+        if k < half:
+            x = left_x
+            yy = y + k * 13
+        else:
+            x = right_x
+            yy = y + (k - half) * 13
+        d.text((x, yy), "%02d" % (k + 1), font=f_anum, fill=RED)
+        d.text((x + 24, yy), item, font=f_atext, fill=INK)
+    y += half * 13 + 10
 
     # DATE CHECK box
-    dc_f = f(SERIF, 10)
-    dc_lab_f = f(SANSB, 10)
-    tue = "TUE NOV 24: " + "; ".join(DATE_CHECK_TUE) + "."
-    mon = "MON NOV 23: " + "; ".join(DATE_CHECK_MON) + "."
-    dc_lines = wrap(d, tue, dc_f, CW - 24) + wrap(d, mon, dc_f, CW - 24)
-    box_h = 16 + 14 * len(dc_lines) + 8
-    d.rectangle([MX, y, MX + CW, y + box_h], outline=INK, width=1)
-    d.text((MX + 12, y + 5), "DATE CHECK \u2014 NOT WEDNESDAY", font=dc_lab_f,
-           fill=RED)
-    ly = y + 20
-    for line in dc_lines:
-        d.text((MX + 12, ly), line, font=dc_f, fill=MUTED)
-        ly += 14
+    f_dhead = font(F_SANS, 13)
+    f_dbody = font(F_SERIF, 13)
+    inner = CW - 28
+    dlines = wrap(d, DATECHECK, f_dbody, inner)
+    box_h = 24 + len(dlines) * 15 + 8
+    d.rectangle([MX, y, W - MX, y + box_h], outline=RED, width=2)
+    d.text((MX + 14, y + 7), "DATE CHECK — NOT WEDNESDAY",
+           font=f_dhead, fill=RED)
+    by = y + 24
+    for line in dlines:
+        d.text((MX + 14, by), line, font=f_dbody, fill=INK)
+        by += 15
     y += box_h + 8
 
-    # sources
-    src_f = f(SERIF, 9)
-    d.text((MX, y), SOURCES, font=src_f, fill=MUTED)
-    y += 13
+    # Sources line
+    f_src = font(F_SERIF, 12)
+    d.text((MX, y), SOURCES, font=f_src, fill=FAINT)
+    y += 16
 
-    print("content bottom y=%d (canvas %d)" % (y, H))
-    assert y <= H - 8, "overflow: content bottom %d" % y
-    return img
+    print("sections end y =", y, "(canvas", H, ")")
+    img.save(OUT)
+    print("wrote", OUT, os.path.getsize(OUT), "bytes")
 
 
 if __name__ == "__main__":
-    im = render()
-    im.save("entry.png", optimize=True)
-    data = open("entry.png", "rb").read()
-    print("entry.png %d bytes sha256 %s"
-          % (len(data), hashlib.sha256(data).hexdigest()))
+    render()
